@@ -1,0 +1,12 @@
+# Reference config. `run:` is structural and validated; `params:` is passed
+# through to the stages untouched, so it can firm up as the model does.
+run:
+  name: example
+  mode: new
+  scenario_group: example
+  stages:
+    initiate: true
+    analysis: true
+    postprocess: true
+
+params: {}

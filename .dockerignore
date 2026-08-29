@@ -1,0 +1,7 @@
+.git
+.env
+pipeline/data
+interface/node_modules
+interface/dist
+engine/build
+docs

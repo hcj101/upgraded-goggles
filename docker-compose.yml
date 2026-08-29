@@ -1,0 +1,64 @@
+# Local dev. The parent drawing the containers together is this file, the
+# shared core/ package, and the REST contract the API exposes.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: appdb
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d appdb"]
+      interval: 5s
+      retries: 10
+
+  pipeline:
+    build: { context: ., dockerfile: pipeline/Dockerfile }
+    image: pipeline:local
+    env_file: .env
+    # Host uid so bind-mounted output isn't left root-owned.
+    user: "1000"
+    volumes:
+      - .:/app
+      - ./pipeline/data:/app/pipeline/data
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["python", "launch.py", "/app/input/000_example.yml"]
+
+  api:
+    build: { context: ., dockerfile: api/Dockerfile }
+    image: api:local
+    env_file: .env
+    # Exposed locally for curl/docs; internal-only in Azure.
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 10s
+      retries: 5
+
+  interface:
+    build: { context: ., dockerfile: interface/Dockerfile }
+    image: interface:local
+    env_file: .env
+    environment:
+      API_BASE_URL: http://api:8000
+    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+
+  worker:
+    image: pipeline:local
+    env_file: .env
+    user: "1000"
+    volumes: ["./bash:/app/bash:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["bash", "/app/bash/queue_worker.sh"]
+    profiles: ["worker"]
+
+volumes:
+  pgdata:

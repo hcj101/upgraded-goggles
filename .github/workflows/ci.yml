@@ -1,0 +1,69 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: appdb }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL_APP: postgresql://app:app@localhost:5432/appdb
+      PROJECT_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build postgresql-client
+      - run: pip install "pybind11[global]==2.13.1" ./core ruff pytest
+      - run: cmake -S engine -B engine/build -G Ninja && cmake --build engine/build --parallel
+      - run: bash sql/run_migrations.sh
+      - run: ruff check core pipeline api
+      - run: PYTHONPATH=engine/build:pipeline python -c "import engine; print(engine.version())"
+
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: appdb }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL_APP: postgresql://app:app@localhost:5432/appdb
+      DATABASE_URL_API: postgresql://app:app@localhost:5432/appdb
+      PROJECT_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: pip install ./core "psycopg[pool]" ./api pytest httpx
+      - run: bash sql/run_migrations.sh
+      - name: Smoke the API
+        run: |
+          python -c "
+          from fastapi.testclient import TestClient
+          from api.main import app
+          with TestClient(app) as c:
+              assert c.get('/healthz').json() == {'ok': True}
+              assert c.get('/runs').json() == []
+              assert c.get('/runs/00000000-0000-0000-0000-000000000000').status_code == 404
+          print('api ok')
+          "
+
+  interface:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: interface } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      - run: node --check server/index.js && node --check server/api.js
+      - run: npm test --if-present

@@ -1,0 +1,20 @@
+[project]
+name = "core"
+version = "0.1.0"
+description = "Shared config, DB and blob layer. Imported by every pipeline stage."
+requires-python = ">=3.11"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "pydantic>=2.7",
+  "pyyaml>=6.0",
+  "azure-storage-blob>=12.20",
+  "azure-identity>=1.17",
+  "structlog>=24.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/core"]
